@@ -2,6 +2,11 @@
 
 [![Tests](https://github.com/jyotiraditya-rathore/quantlib-core/actions/workflows/tests.yml/badge.svg)](https://github.com/jyotiraditya-rathore/quantlib-core/actions/workflows/tests.yml)
 
+## Technical Paper
+
+A full report is available in [paper.pdf](paper.pdf).  
+The LaTeX source is provided in [paper.tex](paper.tex).
+
 A quantitative finance library built  for option pricing and risk analysis.
 
 ## Black–Scholes Option Pricing
