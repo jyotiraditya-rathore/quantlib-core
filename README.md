@@ -1,5 +1,7 @@
 # quantlib-core
 
+[![Tests](https://github.com/jyotiraditya-rathore/quantlib-core/actions/workflows/tests.yml/badge.svg)](https://github.com/jyotiraditya-rathore/quantlib-core/actions/workflows/tests.yml)
+
 A quantitative finance library built  for option pricing and risk analysis.
 
 ## Black–Scholes Option Pricing
@@ -39,6 +41,6 @@ All Greeks are verified against finite difference approximations in the test sui
 git clone https://github.com/jyotiraditya-rathore/quantlib-core.git
 cd quantlib-core
 python -m venv .venv
-.venv\Scripts\activate   # or source .venv/bin/activate
+.venv\Scripts\activate 
 pip install -e ".[dev]"
 pytest
