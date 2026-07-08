@@ -1,8 +1,7 @@
 \documentclass[twocolumn,10pt]{article}
 
-% --- Layout & fonts ---
 \usepackage[margin=0.75in]{geometry}
-\usepackage{mathptmx}         % Times-like font
+\usepackage{mathptmx}         
 \usepackage{setspace}
 \singlespacing
 \usepackage{fancyhdr}
@@ -12,25 +11,19 @@
 \fancyhead[R]{Rathore (2026)}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
-
-% --- Math & symbols ---
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{bm}
 
-% --- Figures & tables ---
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{float}
 
-% --- Hyperlinks ---
 \usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
 
-% --- Section formatting ---
 \usepackage{titlesec}
 \titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
 \titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
 
-% --- Title area ---
 \title{\textbf{QuantLib-Core: First Principles Implementation of the Black--Scholes Option Pricing Model and Analytic Greeks}}
 \author{Jyotiraditya Singh Rathore\thanks{Code repository: \url{https://github.com/jyotiraditya-rathore/quantlib-core}}}
 \date{\today}
