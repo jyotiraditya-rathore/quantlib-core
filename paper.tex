@@ -1,0 +1,231 @@
+\documentclass[twocolumn,10pt]{article}
+
+% --- Layout & fonts ---
+\usepackage[margin=0.75in]{geometry}
+\usepackage{mathptmx}         % Times-like font
+\usepackage{setspace}
+\singlespacing
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{QuantLib-Core Technical Report}
+\fancyhead[R]{Rathore (2026)}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% --- Math & symbols ---
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{bm}
+
+% --- Figures & tables ---
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+
+% --- Hyperlinks ---
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+% --- Section formatting ---
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+
+% --- Title area ---
+\title{\textbf{QuantLib-Core: First Principles Implementation of the Black--Scholes Option Pricing Model and Analytic Greeks}}
+\author{Jyotiraditya Singh Rathore\thanks{Code repository: \url{https://github.com/jyotiraditya-rathore/quantlib-core}}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We describe \texttt{quantlib-core}, a Python library implementing the Black--Scholes option pricing model together with its first and second order Greeks, derived directly from the closed form solution rather than approximated numerically. Put call parity is enforced exactly in the test suite and every analytic Greek is cross checked against a central finite difference estimate. The codebase is small by design two dependencies, one module and a continuous integration pipeline that runs on every commit. This report gives the full derivation, the software architecture and the validation results and is intended as a transparent reference implementation on which more advanced pricing engines can later be built.
+\end{abstract}
+
+\section{Introduction}
+The Black Scholes Merton model \cite{Black1973} remains the standard benchmark for European style option pricing. Most production systems rely on optimized but opaque libraries, this project instead builds a minimal implementation. The motivation is to work through the stochastic calculus, to obtain a baseline against which numerical methods (finite differences, Monte Carlo) can later be validated.
+
+\texttt{quantlib-core} currently prices European calls and puts, computes all five primary Greeks (Delta, Gamma, Vega, Theta, Rho) and ships with a test harness that checks both. Implied volatility, binomial trees and Monte Carlo pricing are planned next.
+
+Section~2 sets up the model and derives the closed-form price. Section~3 gives the Greeks. Section~4 covers the implementation and Section~5 the testing methodology.
+
+\section{Mathematical Model}
+\label{sec:model}
+
+Consider a market with a risky asset $S_t$ and a risk-free bond $B_t$ both traded continuously. Under the physical measure $\mathbb{P}$, the asset follows
+\begin{equation}
+    dS_t = \mu S_t dt + \sigma S_t dW_t, \qquad S_0 > 0,
+    \label{eq:gbm}
+\end{equation}
+with constant expected return $\mu$, constant volatility $\sigma > 0$ and standard Brownian motion $W_t$. The bond grows at a constant risk-free rate $r \geq 0$
+\begin{equation}
+    dB_t = r B_t dt, \qquad B_0 = 1.
+\end{equation}
+
+By the fundamental theorem of asset pricing \cite{Harrison1979}, absence of arbitrage implies a unique risk neutral measure $\mathbb{Q}$, equivalent to $\mathbb{P}$, under which the discounted price $S_t/B_t$ is a martingale. Under $\mathbb{Q}$ the drift becomes $r$
+\begin{equation}
+    dS_t = r S_t dt + \sigma S_t d\widetilde{W}_t,
+    \label{eq:gbm_rn}
+\end{equation}
+with $\widetilde{W}_t$ a $\mathbb{Q}$-Brownian motion. Applying It\^{o}'s lemma to $\ln S_t$
+\begin{equation}
+    d(\ln S_t) = \left(r - \tfrac{1}{2}\sigma^2\right) dt + \sigma d\widetilde{W}_t,
+\end{equation}
+and integrating from $t$ to $T$ gives
+\begin{equation}
+    S_T = S_t \exp\left( \left(r - \tfrac{1}{2}\sigma^2\right)(T-t) + \sigma (\widetilde{W}_T - \widetilde{W}_t) \right),
+    \label{eq:lognormal}
+\end{equation}
+so $S_T$ is lognormal under $\mathbb{Q}$.
+
+\subsection{European Option Pricing}
+A European call with strike $K$ and maturity $T$ pays $C_T = (S_T - K)^+$ at expiry. Risk-neutral valuation gives the time-$t$ price as the discounted expected payoff,
+\begin{equation}
+    C_t = e^{-r(T-t)} \mathbb{E}^{\mathbb{Q}}\left[ (S_T - K)^+ \mid \mathcal{F}_t \right].
+    \label{eq:rn_price}
+\end{equation}
+Since $S_t$ is Markov, this expectation is a function of $S_t$ alone, so we write $C = C(S,t)$. Substituting \eqref{eq:lognormal} and integrating against the lognormal density yields the Black Scholes call price
+\begin{equation}
+    C(S,t) = S N(d_1) - K e^{-r\tau} N(d_2),
+    \label{eq:bs_call}
+\end{equation}
+where $\tau = T-t$
+\begin{align}
+    d_1 &= \frac{\ln(S/K) + (r + \sigma^2/2)\tau}{\sigma \sqrt{\tau}}, \\
+    d_2 &= d_1 - \sigma \sqrt{\tau},
+\end{align}
+and $N(\cdot)$ is the standard normal CDF.
+
+Put call parity, a model-free consequence of payoff linearity, gives the put price directly
+\begin{equation}
+    P(S,t) = C(S,t) - S + K e^{-r\tau}.
+    \label{eq:put_parity}
+\end{equation}
+Equation~\eqref{eq:put_parity} is checked  in the test suite (Section~\ref{sec:testing}) .
+
+\section{Analytic Greeks}
+\label{sec:greeks}
+
+The Greeks are partial derivatives of the option price with respect to the model inputs, used for hedging and risk management. All are computed from Eq.~\eqref{eq:bs_call} and no numerical differentiation is used in production.
+
+\subsection{Delta}
+\begin{align}
+    \Delta_c &\equiv \frac{\partial C}{\partial S} = N(d_1), \label{eq:delta_c}\\
+    \Delta_p &\equiv \frac{\partial P}{\partial S} = N(d_1) - 1. \label{eq:delta_p}
+\end{align}
+Eq.~\eqref{eq:delta_c} follows from differentiating \eqref{eq:bs_call} and using $S N'(d_1) = K e^{-r\tau} N'(d_2)$; Eq.~\eqref{eq:delta_p} follows from parity.
+
+\subsection{Gamma}
+Gamma is identical for calls and puts
+\begin{equation}
+    \Gamma \equiv \frac{\partial^2 C}{\partial S^2} = \frac{N'(d_1)}{S \sigma \sqrt{\tau}},
+    \label{eq:gamma}
+\end{equation}
+with $N'(x) = \frac{1}{\sqrt{2\pi}} e^{-x^2/2}$ the standard normal density.
+
+\subsection{Vega}
+\begin{equation}
+    \mathcal{V} \equiv \frac{\partial C}{\partial \sigma} = S N'(d_1) \sqrt{\tau}.
+    \label{eq:vega_raw}
+\end{equation}
+For quoting purposes we scale to a $1\%$ move in volatility:
+\begin{equation}
+    \text{Vega}_{1\%} = \frac{S N'(d_1) \sqrt{\tau}}{100}.
+    \label{eq:vega}
+\end{equation}
+
+\subsection{Theta}
+\begin{equation}
+    \Theta_c \equiv \frac{\partial C}{\partial t}
+    = -\frac{S N'(d_1) \sigma}{2\sqrt{\tau}} - r K e^{-r\tau} N(d_2),
+    \label{eq:theta_c}
+\end{equation}
+\begin{equation}
+    \Theta_p = -\frac{S N'(d_1) \sigma}{2\sqrt{\tau}} + r K e^{-r\tau} N(-d_2).
+    \label{eq:theta_p}
+\end{equation}
+Daily theta is reported by dividing the annual figure by 365.
+
+\subsection{Rho}
+\begin{align}
+    \rho_c &\equiv \frac{\partial C}{\partial r} = K \tau e^{-r\tau} N(d_2), \label{eq:rho_c}\\
+    \rho_p &\equiv \frac{\partial P}{\partial r} = -K \tau e^{-r\tau} N(-d_2), \label{eq:rho_p}
+\end{align}
+again scaled by $1/100$ for a $1\%$ rate move. 
+
+\section{Implementation}
+\label{sec:implementation}
+
+The library targets Python~3.12 and depends only on NumPy  for vectorized arithmetic and SciPy  for \texttt{norm.cdf} and \texttt{norm.pdf}. No third-party pricing libraries are used.
+
+\subsection{Package Architecture}
+\begin{verbatim}
+quantlib-core/
+|-- src/
+|   `-- quantlib/
+|       `-- pricing/
+|           `-- black_scholes.py
+|-- tests/
+|   |-- test_black_scholes.py
+|   `-- test_greeks.py
+|-- pyproject.toml
+`-- .github/workflows/tests.yml
+\end{verbatim}
+Pricing and Greek functions are currently in a single module, \texttt{black\_scholes.py}and the layout leaves room to split out Monte carlo or finite difference solvers later without restructuring the package.
+
+\subsection{Function Design}
+Every function takes $(S, K, T, r, \sigma)$, where $S$ may be scalar or a NumPy array and implements the formulas of Sections~\ref{sec:model}--\ref{sec:greeks} directly. Two edge cases are as $\sigma \to 0$ or $T \to 0$ the formulas behaved under standard floating-point arithmetic without special casing and for deep in the money options SciPy's normal CDF remains accurate at the tails. All public functions carry NumPy style docstrings documenting units and return types.
+
+\subsection{Packaging and Reproducibility}
+Metadata and dependencies are declared in \texttt{pyproject.toml} and the \texttt{[tool.pytest.ini\_options]} section sets the Python path so \texttt{pytest} discovers the \texttt{quantlib} package without extra configuration. Installation is one command
+\begin{verbatim}
+pip install -e ".[dev]"
+\end{verbatim}
+
+\section{Verification and Testing}
+\label{sec:testing}
+
+The suite is split across two files  \texttt{test\_black\_scholes.py} checks the pricing functions and put call parity and \texttt{test\_greeks.py} checks each analytic Greek against a finite difference estimate.
+
+\subsection{Exact Pricing Tests}
+Computed call prices are compared to an independent high-precision reference value. Put prices are checked both against a separate reference and by enforcing put call parity to a tolerance of $10^{-10}$.
+
+\subsection{Finite-Difference Verification of Greeks}
+First derivatives use a central difference with step $h = 10^{-4}$
+\begin{align}
+    \frac{\partial f}{\partial x} \approx \frac{f(x+h) - f(x-h)}{2h},
+\end{align}
+and Gamma uses the second-order central difference
+\begin{align}
+    \frac{\partial^2 f}{\partial x^2} \approx \frac{f(x+h) - 2f(x) + f(x-h)}{h^2}.
+\end{align}
+Parameters are fixed at an at-the-money configuration, $S_0=100$, $K=100$, $T=1$, $r=5\%$, $\sigma=20\%$ and all analytic Greeks agree with their numerical counterparts to within a relative tolerance of $10^{-3}$.
+
+\subsection{Continuous Integration}
+GitHub Actions runs the full test suite on every push and pull request with a status badge in the repository README.
+
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+\texttt{quantlib-core} is library for Blac -Scholes pricing  verified both analytically and numerically. Planned extensions include
+\begin{itemize}
+    \item Implied volatility via Newton  and Brent's method.
+    \item Binomial and trinomial trees for American options.
+    \item A Monte Carlo engine with variance reduction.
+    \item Finite difference PDE solvers for exotic payoffs.
+\end{itemize}
+
+\begin{thebibliography}{9}
+
+\bibitem{Black1973}
+F.~Black and M.~Scholes, \emph{The Pricing of Options and Corporate Liabilities}, Journal of Political Economy, 81(3):637--654, 1973.
+
+\bibitem{Harrison1979}
+J.M.~Harrison and D.M.~Kreps, \emph{Martingales and Arbitrage in Multiperiod Securities Markets}, Journal of Economic Theory, 20(3):381--408, 1979.
+
+
+
+\end{thebibliography}
+
+\end{document}
